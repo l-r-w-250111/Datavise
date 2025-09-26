@@ -1,4 +1,3 @@
-# Datavise
 # AI-Powered Prediction Simulator
 
 This is an interactive web application built with Streamlit that allows users to upload their own datasets, get model recommendations from a local AI, and run machine learning simulations for both regression and classification tasks. The application also supports time series forecasting with models like LSTM and Prophet.
@@ -57,6 +56,21 @@ This is an interactive web application built with Streamlit that allows users to
 
 2.  **Open your web browser:**
     Navigate to the local URL provided by Streamlit (usually `http://localhost:8501`).
+
+## Configuration
+
+The application can be configured by editing the `settings.json` file. This allows you to change the endpoint for the Ollama API and specify which large language model to use for generating suggestions.
+
+-   `ollama_api_url`: The full URL for the Ollama API's generation endpoint.
+-   `llm_model`: The name of the Ollama model to use (e.g., `llama3`, `gemma:7b`).
+
+**Example `settings.json`:**
+```json
+{
+  "ollama_api_url": "http://localhost:11434/api/generate",
+  "llm_model": "gemma:7b"
+}
+```
 
 ## License
 
