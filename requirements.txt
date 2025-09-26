@@ -1,0 +1,13 @@
+streamlit
+pandas
+scikit-learn
+requests
+gplearn
+lightgbm
+scikit-optimize
+tensorflow
+prophet
+seaborn
+plotly
+pysr>=1.0.0
+shap
