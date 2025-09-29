@@ -51,7 +51,7 @@ This is an interactive web application built with Streamlit that allows users to
 
 1.  **Start the Streamlit app:**
     ```bash
-    streamlit run src/app.py
+    streamlit run app.py
     ```
 
 2.  **Open your web browser:**
