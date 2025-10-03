@@ -58,6 +58,10 @@ This project utilizes various third-party libraries, and their use is subject to
   - **License:** MIT License
   - **URL:** [https://github.com/slundberg/shap/blob/master/LICENSE](https://github.com/slundberg/shap/blob/master/LICENSE)
 
+- **sympy**
+  - **License:** BSD 3-Clause License
+  - **URL:** [https://github.com/sympy/sympy/blob/master/LICENSE](https://github.com/sympy/sympy/blob/master/LICENSE)
+
 ### Common Dependencies
 
 - **numpy**

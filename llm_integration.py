@@ -61,6 +61,43 @@ Your recommended models:
 """
     return prompt
 
+def create_pinn_prompt(user_description: str):
+    """
+    Generates a prompt for the LLM to suggest a differential equation for a PINN.
+    """
+    prompt = f"""
+You are an expert in physics and mathematics. Your task is to translate a user's natural language description of a physical phenomenon into a differential equation.
+
+The output must be the **residual** of the differential equation, which is the part of the equation that equals zero. This format is required for a PINN solver.
+
+**Key Formatting Rules:**
+- The function of interest is `y(x)`, denoted as `y`.
+- The independent variable is `x`.
+- The first derivative `dy/dx` must be written as `dy/dx`.
+- The second derivative `d²y/dx²` must be written as `d2y/dx2`.
+- Use standard Python syntax for mathematical operations (e.g., `*` for multiplication, `**` for power).
+- **Your answer MUST be ONLY the mathematical expression for the residual. No explanation, no intro, no "The residual is:".**
+
+**Example 1:**
+- **User Description:** "A simple exponential decay process, where the rate of change is proportional to the quantity itself. Let's say the proportionality constant is 1."
+- **Your Output:** `dy/dx + y`
+
+**Example 2:**
+- **User Description:** "A simple harmonic oscillator, like a mass on a spring. The acceleration is negatively proportional to the position. Let the constant of proportionality (omega squared) be 4."
+- **Your Output:** `d2y/dx2 + 4*y`
+
+**Example 3:**
+- **User Description:** "The derivative of a function is equal to the sine of x."
+- **Your Output:** `dy/dx - sin(x)`
+
+---
+**User's Description of the Phenomenon:**
+"{user_description}"
+
+**Your suggested ODE residual:**
+"""
+    return prompt
+
 def get_llm_suggestions(prompt: str):
     """
     Calls the Ollama API to get model suggestions.

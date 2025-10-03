@@ -9,9 +9,10 @@ import numpy as np
 import joblib
 from io import BytesIO
 import matplotlib.pyplot as plt
-from llm_integration import create_prompt, get_llm_suggestions
+from llm_integration import create_prompt, get_llm_suggestions, create_pinn_prompt
 from model_training import train_and_evaluate, find_best_params, MODEL_MAP
 from ts_model_training import train_and_predict_lstm, train_and_predict_prophet
+from pinn_solver import PINNSolver
 from prophet.plot import plot_plotly
 import seaborn as sns
 import shap
@@ -54,11 +55,18 @@ def main():
         st.session_state.lstm_sequence_length = 0
     if 'lstm_results_df' not in st.session_state:
         st.session_state.lstm_results_df = None
+    if 'pinn_solver' not in st.session_state:
+        st.session_state.pinn_solver = None
+    if 'pinn_history' not in st.session_state:
+        st.session_state.pinn_history = None
+    if 'pinn_condition_data' not in st.session_state:
+        st.session_state.pinn_condition_data = None
+
 
     # --- Mode Selection ---
     prediction_mode = st.sidebar.selectbox(
         "Select Prediction Mode",
-        ["Tabular Prediction", "Time Series Forecasting"]
+        ["Tabular Prediction", "Time Series Forecasting", "PINN Solver"]
     )
     st.sidebar.write("---")
 
@@ -66,6 +74,8 @@ def main():
         run_tabular_prediction()
     elif prediction_mode == "Time Series Forecasting":
         run_time_series_forecasting()
+    elif prediction_mode == "PINN Solver":
+        run_pinn_solver()
 
 def run_tabular_prediction():
     st.header("Tabular Prediction")
@@ -557,6 +567,174 @@ def run_time_series_forecasting():
 
         except Exception as e:
             st.error(f"An error occurred while processing the time series data: {e}")
+
+def run_pinn_solver():
+    """
+    UI for the generalized Physics-Informed Neural Network (PINN) solver.
+    """
+    st.header("⚡ General Purpose PINN Solver")
+    st.write("Define a differential equation, provide boundary/initial conditions, and train a PINN to find the solution.")
+
+    # --- 1. Load Existing Model (Optional) ---
+    with st.expander("1. Load Existing Model (Optional)"):
+        uploaded_model_file = st.file_uploader("Upload a trained PINN model (.keras)", type="keras")
+        if uploaded_model_file:
+            with st.spinner("Loading model..."):
+                # Save the uploaded file temporarily to load it from a path
+                with open("temp_model.keras", "wb") as f:
+                    f.write(uploaded_model_file.getbuffer())
+                
+                solver = PINNSolver.load_model("temp_model.keras")
+                if solver:
+                    st.session_state.pinn_solver = solver
+                    st.success("Model loaded successfully!")
+                    # Clean up the temporary file
+                    os.remove("temp_model.keras")
+                else:
+                    st.error("Failed to load the model.")
+
+    # --- 2. Define Problem and Train ---
+    st.subheader("2. Define Problem and Train New Model")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # ODE Input
+        st.write("**Define the Differential Equation**")
+
+        # Session state to hold the ODE string
+        if 'pinn_ode_string' not in st.session_state:
+            st.session_state.pinn_ode_string = "dy/dx + y"
+
+        # LLM Suggestion Box
+        with st.expander("Or, get a suggestion from the AI"):
+            user_description = st.text_area(
+                "Describe the physical problem or phenomenon",
+                placeholder="e.g., A simple harmonic oscillator where acceleration is proportional to position, with a constant of 4."
+            )
+            if st.button("Suggest Equation"):
+                if user_description:
+                    with st.spinner("Asking AI for an equation..."):
+                        prompt = create_pinn_prompt(user_description)
+                        suggestion = get_llm_suggestions(prompt)
+                        if "Error:" not in suggestion:
+                            st.session_state.pinn_ode_string = suggestion
+                            st.success("Suggestion received!")
+                        else:
+                            st.error(suggestion)
+                else:
+                    st.warning("Please enter a description first.")
+        
+        ode_string = st.text_input(
+            "Enter the ODE residual",
+            key='pinn_ode_string', # Bind the text input to the session state
+            help="Define the equation in its residual form (equal to zero). Use 'y' for the function and 'x' for the variable. Use 'dy/dx' for the first derivative and 'd2y/dx2' for the second."
+        )
+        st.write("---")
+        # Condition Data Upload
+        uploaded_conditions_file = st.file_uploader(
+            "Upload Initial/Boundary Conditions (CSV)",
+            type="csv",
+            help="CSV must have 'x' and 'y' columns."
+        )
+        if uploaded_conditions_file:
+            st.session_state.pinn_condition_data = pd.read_csv(uploaded_conditions_file)
+            st.write("Data Preview:")
+            st.dataframe(st.session_state.pinn_condition_data.head())
+
+    with col2:
+        # Hyperparameters
+        st.write("Training Hyperparameters")
+        epochs = st.slider("Epochs", 100, 20000, 5000, 100, key="pinn_epochs")
+        domain_points = st.slider("Collocation Points", 50, 1000, 200, 10, key="pinn_domain_points")
+        layers = st.slider("Hidden Layers", 1, 10, 3, 1, key="pinn_layers")
+        neurons = st.slider("Neurons per Layer", 8, 128, 32, 4, key="pinn_neurons")
+
+    if st.button("Train PINN Model", key="train_pinn"):
+        if ode_string and st.session_state.pinn_condition_data is not None:
+            with st.spinner("Training PINN... See console for progress."):
+                try:
+                    # Initialize a new solver
+                    solver = PINNSolver(num_hidden_layers=layers, num_neurons_per_layer=neurons)
+                    
+                    # Create domain points based on the condition data's range
+                    x_min = st.session_state.pinn_condition_data['x'].min()
+                    x_max = st.session_state.pinn_condition_data['x'].max()
+                    domain_x = np.linspace(x_min, x_max, domain_points).reshape(-1, 1)
+
+                    # Train the model
+                    solver.train(ode_string, domain_x, st.session_state.pinn_condition_data, epochs)
+                    
+                    # Store results in session state
+                    st.session_state.pinn_solver = solver
+                    st.session_state.pinn_history = solver.history
+                    st.success("PINN training completed!")
+
+                except Exception as e:
+                    st.error(f"An error occurred during training: {e}")
+        else:
+            st.warning("Please provide both an ODE string and condition data to train a model.")
+
+    # --- 3. Analyze Results and Predict ---
+    if st.session_state.pinn_solver:
+        st.subheader("3. Analyze Results and Predict")
+        solver = st.session_state.pinn_solver
+
+        # Display loss history if available from the last training run
+        if st.session_state.pinn_history:
+            st.write("#### Training Loss History")
+            history_df = pd.DataFrame(st.session_state.pinn_history, columns=["Total Loss", "Data Loss", "Physics Loss"])
+            st.line_chart(history_df)
+
+        # Plot solution
+        st.write("#### Solution Plot")
+        condition_data = st.session_state.pinn_condition_data
+        if condition_data is not None:
+            x_min, x_max = condition_data['x'].min(), condition_data['x'].max()
+            x_plot = np.linspace(x_min, x_max, 400).reshape(-1, 1)
+            y_pred = solver.predict(x_plot).numpy()
+
+            fig, ax = plt.subplots()
+            ax.plot(x_plot, y_pred, label="PINN Solution", color="red", zorder=2)
+            ax.scatter(condition_data['x'], condition_data['y'], label="Condition Data", color="blue", zorder=3)
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.set_title("PINN Solution vs. Condition Data")
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+        
+        # Download model
+        model_buffer = BytesIO()
+        try:
+            # Temporarily save to a file, read it into buffer, then delete.
+            solver.save_model("temp_model_download.keras")
+            with open("temp_model_download.keras", "rb") as f:
+                model_buffer.write(f.read())
+            os.remove("temp_model_download.keras")
+            model_buffer.seek(0)
+            
+            st.download_button(
+                label="Download Trained Model",
+                data=model_buffer,
+                file_name="pinn_model.keras",
+                mime="application/octet-stream"
+            )
+        except Exception as e:
+            st.error(f"Could not prepare model for download: {e}")
+
+        # Prediction form
+        st.write("---")
+        st.write("#### Predict on New Data")
+        with st.form("pinn_predict_form"):
+            x_input = st.number_input("Enter a value for x to predict y:", value=0.0, format="%.4f")
+            predict_button = st.form_submit_button("Predict")
+            if predict_button:
+                try:
+                    prediction = solver.predict(np.array([[x_input]]))
+                    st.success(f"**Predicted y({x_input}) =** `{prediction.numpy()[0][0]:.6f}`")
+                except Exception as e:
+                    st.error(f"Prediction failed: {e}")
+
 
 if __name__ == "__main__":
     main()

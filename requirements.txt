@@ -11,3 +11,4 @@ seaborn
 plotly
 pysr>=1.0.0
 shap
+sympy
