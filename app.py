@@ -11,7 +11,7 @@ from io import BytesIO
 import matplotlib.pyplot as plt
 from llm_integration import create_prompt, get_llm_suggestions, create_pinn_prompt
 from model_training import train_and_evaluate, find_best_params, MODEL_MAP
-from ts_model_training import train_and_predict_lstm, train_and_predict_prophet
+from ts_model_training import train_and_predict_lstm, train_and_predict_prophet, predict_future_lstm
 from pinn_solver import PINNSolver
 from prophet.plot import plot_plotly
 import seaborn as sns
@@ -501,29 +501,74 @@ def run_time_series_forecasting():
                 # --- Predict Next Value UI ---
                 if st.session_state.lstm_model:
                     st.write("---")
-                    st.subheader("Predict Next Value")
-                    st.write(f"Provide the last {st.session_state.lstm_sequence_length} data points to predict the next one.")
+                    st.subheader("Predict Next Value(s)")
 
+                    # Single Value Prediction
+                    st.write(f"**Predict a single next value based on the last sequence of the dataset.**")
                     with st.form(key="lstm_predict_form"):
-                        last_sequence = st.text_area(
-                            "Enter sequence (comma-separated values)",
-                            value=", ".join(map(str, df[value_col].iloc[-st.session_state.lstm_sequence_length:].values))
+                        last_sequence_str = ", ".join(map(str, df[value_col].iloc[-st.session_state.lstm_sequence_length:].values))
+                        st.text_area(
+                            "Last sequence from data (for reference)",
+                            value=last_sequence_str,
+                            disabled=True, height=100
                         )
-                        lstm_predict_submit = st.form_submit_button("Predict")
+                        lstm_predict_submit = st.form_submit_button("Predict Single Next Value")
 
                         if lstm_predict_submit:
                             try:
-                                input_values = np.array([float(v.strip()) for v in last_sequence.split(',')])
-                                if len(input_values) != st.session_state.lstm_sequence_length:
-                                    st.error(f"Error: Please provide exactly {st.session_state.lstm_sequence_length} values.")
-                                else:
-                                    scaled_input = st.session_state.lstm_scaler.transform(input_values.reshape(-1, 1))
-                                    reshaped_input = scaled_input.reshape((1, st.session_state.lstm_sequence_length, 1))
-                                    prediction_scaled = st.session_state.lstm_model.predict(reshaped_input)
-                                    prediction = st.session_state.lstm_scaler.inverse_transform(prediction_scaled)
-                                    st.success(f"**Predicted Next Value:** `{prediction[0][0]:,.2f}`")
+                                input_values = np.array([float(v.strip()) for v in last_sequence_str.split(',')])
+                                scaled_input = st.session_state.lstm_scaler.transform(input_values.reshape(-1, 1))
+                                reshaped_input = scaled_input.reshape((1, st.session_state.lstm_sequence_length, 1))
+                                prediction_scaled = st.session_state.lstm_model.predict(reshaped_input)
+                                prediction = st.session_state.lstm_scaler.inverse_transform(prediction_scaled)
+                                st.success(f"**Predicted Next Value:** `{prediction[0][0]:,.6f}`") # Increased precision
                             except Exception as e:
                                 st.error(f"An error occurred during prediction: {e}")
+                    
+                    st.write("---")
+                    # Multi-step ahead prediction
+                    st.write(f"**Forecast multiple steps into the future using a sliding window.**")
+                    with st.form(key="lstm_multi_predict_form"):
+                        n_steps = st.number_input("How many steps to predict ahead?", min_value=1, max_value=100, value=10)
+                        multi_predict_submit = st.form_submit_button("Run Multi-Step Forecast")
+
+                        if multi_predict_submit:
+                            with st.spinner("Running multi-step forecast..."):
+                                try:
+                                    # Get the last sequence from the original data
+                                    last_sequence = df[value_col].iloc[-st.session_state.lstm_sequence_length:].values
+                                    
+                                    # Get future predictions
+                                    future_preds = predict_future_lstm(
+                                        st.session_state.lstm_model,
+                                        st.session_state.lstm_scaler,
+                                        last_sequence,
+                                        st.session_state.lstm_sequence_length,
+                                        n_steps
+                                    )
+
+                                    st.success("Multi-step forecast complete!")
+                                    
+                                    # Create a dataframe for the results
+                                    future_df = pd.DataFrame(future_preds, columns=["Forecast"])
+                                    future_df.index = future_df.index + 1 # Start index from 1
+                                    
+                                    st.write("#### Forecasted Values")
+                                    st.dataframe(future_df.style.format("{:.6f}"))
+
+                                    # Plot the results
+                                    st.write("#### Forecast Plot")
+                                    fig, ax = plt.subplots()
+                                    ax.plot(future_df.index, future_df['Forecast'], marker='o', linestyle='-', label='Future Forecast')
+                                    ax.set_xlabel("Step Ahead")
+                                    ax.set_ylabel("Predicted Value")
+                                    ax.set_title(f"{n_steps}-Step Ahead Forecast")
+                                    ax.legend()
+                                    ax.grid(True)
+                                    st.pyplot(fig)
+
+                                except Exception as e:
+                                    st.error(f"An error occurred during multi-step prediction: {e}")
 
             if ts_model_name == "Prophet" and st.session_state.get('prophet_model') is not None:
                 prophet_model = st.session_state.prophet_model

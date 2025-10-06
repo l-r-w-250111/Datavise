@@ -123,3 +123,30 @@ def train_and_predict_prophet(df: pd.DataFrame, date_col: str, value_col: str, p
 
     except Exception as e:
         return None, None, f"An error occurred during Prophet model training: {e}"
+
+def predict_future_lstm(model, scaler, last_sequence, sequence_length, n_steps):
+    """
+    Predicts multiple future steps using a trained LSTM model.
+    """
+    future_predictions = []
+    current_sequence = last_sequence.reshape(-1, 1)
+
+    for _ in range(n_steps):
+        # Scale the current sequence
+        scaled_sequence = scaler.transform(current_sequence)
+        
+        # Reshape for the model
+        reshaped_sequence = scaled_sequence.reshape((1, sequence_length, 1))
+        
+        # Predict the next step
+        prediction_scaled = model.predict(reshaped_sequence)
+        
+        # Inverse transform the prediction
+        prediction = scaler.inverse_transform(prediction_scaled)
+        future_predictions.append(prediction[0][0])
+        
+        # Update the sequence for the next prediction
+        # Append the new scaled prediction and remove the first element
+        current_sequence = np.append(current_sequence[1:], prediction, axis=0)
+
+    return future_predictions
